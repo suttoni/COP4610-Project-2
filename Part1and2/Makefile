@@ -1,5 +1,5 @@
 ifneq ($(KERNELRELEASE),)
-	obj-m := shuttle.o
+	obj-m := my_date.o
 else
 	KERNELDIR ?= /lib/modules/`uname -r`/build/
 	PWD := `pwd`
