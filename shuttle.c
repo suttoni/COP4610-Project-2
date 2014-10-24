@@ -88,6 +88,15 @@ long issue_request(char passenger_type, int initial_terminal, int destination_te
 }
 
 long stop_shuttle(void){
+	struct list_head *pos;
+	struct passenger_data *temp;
+	for(int i = 0; i < NUM_TERMINALS; i++){
+		printk(KERN_ALERT "Terminal %d Queue: \n", i+1);
+		list_for_each(pos, &terminal[i].queue){
+			temp = list_entry(pos, struct passenger_data, passenger_list);
+			printk(KERN_ALERT "Type: %c\n", temp->type);
+		}
+	}
 	shuttle.status = OFFLINE; //Obviously this is dirty
 	printk(KERN_ALERT "Shuttle stopping.");
 	return 0;
