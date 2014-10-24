@@ -1,3 +1,4 @@
+ccflags-y := -std=gnu99
 ifneq ($(KERNELRELEASE),)
 	obj-m := shuttle.o
 else
