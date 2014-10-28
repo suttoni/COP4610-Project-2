@@ -38,13 +38,14 @@ struct shuttle_data{
 	shuttle_status status;
 	short current_terminal;
 	short destination_terminal;
-	short seats_used;
+	int seats_used;
 	bool keep_running;
 	struct list_head passengers;
 };
 
 struct terminal_data{
 	int queue_size;
+	int delivered;
 	struct list_head queue; 
 };
 
@@ -58,7 +59,8 @@ int adults_delivered, children_delivered, luggage_delivered;
 
 
 //Shuttle service functions
-int unload_passengers(void){
+short unload_passengers(void){
+	short unloaded = 0;
 	struct list_head *pos, *q;
 	struct passenger_data *temp;
 	list_for_each_safe(pos, q, &shuttle.passengers){
@@ -68,14 +70,20 @@ int unload_passengers(void){
 					case 'A':
 						shuttle.seats_used -= 2;
 						adults_delivered++;
+						terminal[shuttle.current_terminal-1].delivered++;
+						unloaded++;
 						break;
 					case 'C':
 						shuttle.seats_used -= 1;
 						children_delivered++;
+						terminal[shuttle.current_terminal-1].delivered++;
+						unloaded++;
 						break;
 					case 'L':
 						shuttle.seats_used -= 4;
 						luggage_delivered++;
+						terminal[shuttle.current_terminal-1].delivered++;
+						unloaded++;
 						break;
 				}
 				list_del(pos);
@@ -83,10 +91,11 @@ int unload_passengers(void){
 			}
 	}
 
-	return 0;
+	return unloaded;
 }
 
-int load_passengers(void){
+short load_passengers(void){
+	short loaded = 0;
 	struct list_head *pos, *q;
 	struct passenger_data *temp;
 	list_for_each_safe(pos, q, &terminal[shuttle.current_terminal-1].queue){
@@ -94,51 +103,60 @@ int load_passengers(void){
 			if(shuttle.seats_used < TOTAL_SEATS){
 				switch (temp->type){
 					case 'A':
-						if((shuttle.seats_used+2) < TOTAL_SEATS){
+						if((shuttle.seats_used+2) <= TOTAL_SEATS){
 							shuttle.seats_used += 2;
 							list_del(pos);
 							list_add(pos, &shuttle.passengers);
+							loaded++;
 						}
 						break;
 					case 'C':
-						if((shuttle.seats_used+1) < TOTAL_SEATS){
+						if((shuttle.seats_used+1) <= TOTAL_SEATS){
 							shuttle.seats_used += 1;
 							list_del(pos);
 							list_add(pos, &shuttle.passengers);
+							loaded++;
 						}
 						break;
 					case 'L':
-						if((shuttle.seats_used+4) < TOTAL_SEATS){
+						if((shuttle.seats_used+4) <= TOTAL_SEATS){
 							shuttle.seats_used += 4;
 							list_del(pos);
 							list_add(pos, &shuttle.passengers);
+							loaded++;
 						}
 						break;
 				}
 			}
 	}
 
-	return 0;
+	return loaded;
 }
 
 int shuttle_service(void * data){
+	int travel_time = 0;
+	short passenger_changes;
 	while(shuttle.keep_running){
 		//Do shuttle things
 		if(shuttle.status == PARKED){
 			//Unload and then load
+			passenger_changes = 0;
 			mutex_lock(&shuttle_lock);
-			unload_passengers();
+			passenger_changes += unload_passengers();
 			mutex_lock(&terminal_lock);
-			load_passengers();
+			passenger_changes += load_passengers();
 			shuttle.destination_terminal = (shuttle.current_terminal%NUM_TERMINALS)+1;
 			mutex_unlock(&shuttle_lock);
 			mutex_unlock(&terminal_lock);
-			
+			if(passenger_changes <= 4)
+				passenger_changes = 0;
+			msleep(100 + passenger_changes*30);
 		}
 		mutex_lock(&shuttle_lock);
 		shuttle.status = MOVING;
+		travel_time = abs(shuttle.current_terminal - shuttle.destination_terminal)*300;
 		mutex_unlock(&shuttle_lock);
-		msleep(100);
+		msleep(travel_time);
 		mutex_lock(&shuttle_lock);
 		shuttle.current_terminal = shuttle.destination_terminal;
 		shuttle.destination_terminal = 0;
@@ -148,13 +166,23 @@ int shuttle_service(void * data){
 
 	shuttle.status = DEACTIVATING;	
 
-	/*while(shuttle.seats_used != 0){
+	while(shuttle.seats_used != 0){
 		//Unload passengers
+		passenger_changes = 0;
 		mutex_lock(&shuttle_lock);
 		unload_passengers();
 		mutex_unlock(&shuttle_lock);
-		msleep(100);
-	}*/
+		if(passenger_changes <= 4)
+			passenger_changes = 0;
+		msleep(100 + passenger_changes*30);
+		mutex_lock(&shuttle_lock);
+		shuttle.destination_terminal = (shuttle.current_terminal%NUM_TERMINALS)+1;
+		travel_time = abs(shuttle.current_terminal - shuttle.destination_terminal)*300;
+		shuttle.current_terminal = shuttle.destination_terminal;
+		shuttle.destination_terminal = 0;
+		mutex_unlock(&shuttle_lock);
+		msleep(travel_time);
+	}
 	
 	shuttle.status = OFFLINE;
 	kthread_stop(shuttle_thread);
@@ -180,7 +208,7 @@ long start_shuttle(void){
 		mutex_unlock(&shuttle_lock);
 		printk(KERN_ALERT "Shuttle already started.");
 	}
-	return -1;
+	return 1;
 }
 
 long issue_request(char passenger_type, int initial_terminal, int destination_terminal){
@@ -203,15 +231,22 @@ long issue_request(char passenger_type, int initial_terminal, int destination_te
 	else{
 		printk(KERN_ALERT "Invalid passenger information. %c %d %d", passenger_type, initial_terminal, destination_terminal);
 	}
-	return -1;
+	return 1;
 }
 
 long stop_shuttle(void){
 	mutex_lock(&shuttle_lock);
-	shuttle.keep_running = false;
+	if(shuttle.keep_runing == true){
+		shuttle.keep_running = false;
+		mutex_unlock(&shuttle_lock);
+		printk(KERN_ALERT "Shuttle stopping.");
+		return 0;
+	}
+	else{
+		printk(KERN_ALERT "Shuttle is deactivating or parked already.");
+	}
 	mutex_unlock(&shuttle_lock);
-	printk(KERN_ALERT "Shuttle stopping.");
-	return 0;
+	return 1;
 }
 
 //Module functions
@@ -238,12 +273,12 @@ int shuttle_show(struct seq_file *m, void *v) {
 			status_string = "MOVING";
 			break;
 	}
-	seq_printf(m, "Status:\t%s\n", status_string);
+	seq_printf(m, "Status:\t\t%s\n", status_string);
 	
 	if(shuttle.seats_used%2 == 1)
-		seq_printf(m, "Seats:\t%d.5 used %d.5 available\n", shuttle.seats_used/2, (TOTAL_SEATS-shuttle.seats_used)/2);
+		seq_printf(m, "Seats:\t\t%d.5 used %d.5 available\n", shuttle.seats_used/2, (TOTAL_SEATS-shuttle.seats_used)/2);
 	else
-		seq_printf(m, "Seats:\t%d used %d available\n", shuttle.seats_used/2, (TOTAL_SEATS-shuttle.seats_used)/2);
+		seq_printf(m, "Seats:\t\t%d used %d available\n", shuttle.seats_used/2, (TOTAL_SEATS-shuttle.seats_used)/2);
 	adults = 0;
 	children = 0;
 	luggage = 0;
@@ -262,10 +297,10 @@ int shuttle_show(struct seq_file *m, void *v) {
 		}
 	}
 	
-	seq_printf(m, "Passengers:%d  (%d adults with luggage, %d adults without luggage, %d children)\n", (adults+children+luggage), luggage, adults, children);
+	seq_printf(m, "Passengers:\t%d  (%d adults with luggage, %d adults without luggage, %d children)\n", (adults+children+luggage), luggage, adults, children);
 	seq_printf(m, "Location:\t%hd\n", shuttle.current_terminal);
 	seq_printf(m, "Destination:\t%hd\n", shuttle.destination_terminal);
-	seq_printf(m, "Delivered: %d  (%d adults with luggage, %d adults without luggage, %d children)\n", (adults_delivered+children_delivered +luggage_delivered), luggage_delivered, adults_delivered, children_delivered);
+	seq_printf(m, "Delivered:\t%d  (%d adults with luggage, %d adults without luggage, %d children)\n", (adults_delivered+children_delivered +luggage_delivered), luggage_delivered, adults_delivered, children_delivered);
 	seq_printf(m, "-----\n");
 	for(int i = 0; i < NUM_TERMINALS; i++){
 		adults = 0;
@@ -286,7 +321,7 @@ int shuttle_show(struct seq_file *m, void *v) {
 					break;
 			}
 		}
-		seq_printf(m, "%d adult with luggage, %d adult without luggage, %d children in queue.\n", luggage, adults, children);
+		seq_printf(m, "\t%d adult with luggage, %d adult without luggage, %d children in queue. %d passengers delivered so far.\n", luggage, adults, children, terminal[i].delivered);
 	}
 	mutex_unlock(&shuttle_lock);
 	mutex_unlock(&terminal_lock);
@@ -327,6 +362,7 @@ int __init shuttle_init(void) {
 	mutex_lock(&terminal_lock);
 	for(int i = 0; i < NUM_TERMINALS; i++){
 		terminal[i].queue_size = 0;
+		terminal[i].delivered = 0;
 		INIT_LIST_HEAD(&terminal[i].queue);
 	}
 	mutex_unlock(&terminal_lock);
@@ -344,8 +380,15 @@ void __exit shuttle_exit(void) {
 	shuttle.keep_running = false;
 	mutex_unlock(&shuttle_lock);
 	
-	while(shuttle.status != OFFLINE){
-		//Wait for shuttle to stop before removing module
+	while(1){
+	//Wait for shuttle to stop before removing module
+		mutex_lock(&shuttle_lock);
+		if(shuttle.status == OFFLINE){
+			mutex_unlock(&shuttle_lock);	
+			break;
+		}
+		mutex_unlock(&shuttle_lock);
+		msleep(1000);
 	}
 
 	mutex_destroy(&shuttle_lock);
