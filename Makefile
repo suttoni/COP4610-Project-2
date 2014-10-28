@@ -1,6 +1,10 @@
 ccflags-y := -std=gnu99
 ifneq ($(KERNELRELEASE),)
-	obj-m := shuttle.o
+	TARGET = shuttle_module
+
+	shuttle_module-objs := shuttle_service.o syscall_handler.o module.o	
+
+	obj-m := $(TARGET).o
 else
 	KERNELDIR ?= /lib/modules/`uname -r`/build/
 	PWD := `pwd`
@@ -9,3 +13,4 @@ default:
 clean:
 	$(MAKE) -C $(KERNELDIR) M=$(PWD) clean
 endif
+
