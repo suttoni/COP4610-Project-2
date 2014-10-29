@@ -70,3 +70,7 @@ The shuttle itself uses an algorithm similar to `C-SCAN` in order to vist all th
 
 There are no known errors with my implementation of this project. 
 
+## Contributions ##
+
+Please see my [GitHub Page](https://github.com/easyxtarget/COP4610-Project-2/graphs/contributors) for this project.
+
