@@ -17,7 +17,7 @@ long start_shuttle(void){
 		shuttle.seats_used = 0;
 		shuttle.keep_running = true;
 		mutex_unlock(&shuttle_lock);
-		shuttle_thread = kthread_run(shuttle_service, NULL, "Shuttle thread");
+		shuttle_thread = kthread_run(shuttle_service, NULL, "shuttle");
 		printk(KERN_ALERT "Shuttle thread started.");
 		return 0;
 	}
@@ -38,10 +38,18 @@ long issue_request(char passenger_type, int initial_terminal, int destination_te
 		passenger->initial_terminal = initial_terminal;
 		passenger->destination = destination_terminal;
 		INIT_LIST_HEAD(&passenger->passenger_list);
-		mutex_lock(&terminal_lock);
-		list_add_tail(&passenger->passenger_list, &terminal[passenger->initial_terminal-1].queue);
-		terminal[passenger->initial_terminal-1].queue_size++;
-		mutex_unlock(&terminal_lock);
+		if(passenger->type == 'C'){
+			mutex_lock(&terminal_lock);
+			list_add(&passenger->passenger_list, &terminal[passenger->initial_terminal-1].queue);
+			terminal[passenger->initial_terminal-1].queue_size++;
+			mutex_unlock(&terminal_lock);
+		}
+		else{
+			mutex_lock(&terminal_lock);
+			list_add_tail(&passenger->passenger_list, &terminal[passenger->initial_terminal-1].queue);
+			terminal[passenger->initial_terminal-1].queue_size++;
+			mutex_unlock(&terminal_lock);
+		}
 		printk(KERN_ALERT "Request issued.");
 		return 0;
 	}
